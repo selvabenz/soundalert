@@ -37,7 +37,14 @@ jobs:
           gradle-version: '9.6.0'
 
       - name: Download verified YAMNet model
-        run: ./scripts/fetch-yamnet.sh
+        run: bash ./scripts/fetch-yamnet.sh
+
+- name: Remove legacy v0.1 sources
+  run: |
+    rm -f app/src/main/java/com/bridgeconn/soundalert/AppBus.kt
+    rm -f app/src/main/java/com/bridgeconn/soundalert/audio/HeuristicSoundClassifier.kt
+    rm -f app/src/main/java/com/bridgeconn/soundalert/ui/Theme.kt
+    rm -f app/src/test/java/com/bridgeconn/soundalert/audio/HeuristicSoundClassifierTest.kt
 
       - name: Test and build
         run: |
