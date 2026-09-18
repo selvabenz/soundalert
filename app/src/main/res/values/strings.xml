@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">SoundAlert</string>
+    <string name="listening_channel_name">Sound detection</string>
+    <string name="alert_channel_name">Important sound alerts</string>
+</resources>
