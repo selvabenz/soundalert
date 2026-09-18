@@ -10,3 +10,4 @@
 app/src/main/assets/yamnet.tflite
 *.jks
 *.keystore
+!signing/soundalert-v2-beta.keystore

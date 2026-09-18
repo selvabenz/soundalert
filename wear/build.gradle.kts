@@ -10,8 +10,8 @@ android {
         applicationId = "com.bridgeconn.soundalert.v2beta"
         minSdk = 30
         targetSdk = 37
-        versionCode = 200
-        versionName = "0.2.0"
+        versionCode = providers.gradleProperty("soundAlertVersionCode").get().toInt()
+        versionName = providers.gradleProperty("soundAlertVersionName").get()
     }
 
     signingConfigs {
@@ -26,7 +26,6 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("beta")
-            versionNameSuffix = "-beta"
         }
         release {
             isMinifyEnabled = true

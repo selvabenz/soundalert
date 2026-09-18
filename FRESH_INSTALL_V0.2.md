@@ -1,4 +1,4 @@
-# SoundAlert v0.2.0 — Fresh-install GitHub package
+# SoundAlert v0.2.0-beta.1 — Fresh-install GitHub package
 
 This package intentionally uses a new beta application ID:
 
@@ -11,13 +11,13 @@ v0.2 debug packages, avoiding Android package/signature conflicts during testing
 
 Install only:
 
-`SoundAlert-v0.2.0-INSTALL-ON-PHONE.apk`
+`SoundAlert-v0.2.0-beta.1-INSTALL-ON-PHONE.apk`
 
 on the Android phone.
 
 Do **not** install the Wear OS APK on the phone. The watch APK is:
 
-`SoundAlert-v0.2.0-INSTALL-ON-WEAR-OS-WATCH.apk`
+`SoundAlert-v0.2.0-beta.1-INSTALL-ON-WEAR-OS-WATCH.apk`
 
 and requires a Wear OS watch.
 
@@ -35,5 +35,5 @@ Play Store/final production release.
 The build workflow verifies each APK with `apksigner` and `zipalign` before publishing artifacts.
 It uploads two clearly separated artifacts:
 
-- `INSTALL-ON-PHONE-SoundAlert-v0.2.0`
-- `INSTALL-ON-WATCH-SoundAlert-v0.2.0`
+- `INSTALL-ON-PHONE-SoundAlert-v0.2.0-beta.1`
+- `INSTALL-ON-WATCH-SoundAlert-v0.2.0-beta.1`

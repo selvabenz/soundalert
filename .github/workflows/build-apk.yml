@@ -1,4 +1,4 @@
-name: Build SoundAlert v0.2 APKs
+name: Build SoundAlert APKs
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -33,12 +33,18 @@ jobs:
           sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "platform-tools"
 
       - name: Set up Gradle 9.6.0
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '9.6.0'
 
       - name: Download verified YAMNet model
         run: bash ./scripts/fetch-yamnet.sh
+
+      - name: Read application version
+        run: |
+          APP_VERSION="$(sed -n 's/^soundAlertVersionName=//p' gradle.properties)"
+          test -n "$APP_VERSION"
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
 
       - name: Remove legacy v0.1 sources
         run: |
@@ -65,20 +71,22 @@ jobs:
       - name: Prepare phone APK
         run: |
           mkdir -p dist/phone
-          cp app/build/outputs/apk/debug/app-debug.apk             dist/phone/SoundAlert-v0.2.0-INSTALL-ON-PHONE.apk
+          cp app/build/outputs/apk/debug/app-debug.apk \
+            "dist/phone/SoundAlert-v${APP_VERSION}-INSTALL-ON-PHONE.apk"
           cd dist/phone
-          sha256sum *.apk > SoundAlert-v0.2.0-phone.sha256
+          sha256sum *.apk > "SoundAlert-v${APP_VERSION}-phone.sha256"
 
       - name: Prepare watch APK
         run: |
           mkdir -p dist/watch
-          cp wear/build/outputs/apk/debug/wear-debug.apk             dist/watch/SoundAlert-v0.2.0-INSTALL-ON-WEAR-OS-WATCH.apk
+          cp wear/build/outputs/apk/debug/wear-debug.apk \
+            "dist/watch/SoundAlert-v${APP_VERSION}-INSTALL-ON-WEAR-OS-WATCH.apk"
           cd dist/watch
-          sha256sum *.apk > SoundAlert-v0.2.0-watch.sha256
+          sha256sum *.apk > "SoundAlert-v${APP_VERSION}-watch.sha256"
 
       - name: Report phone APK size
         run: |
-          PHONE_SIZE=$(stat -c%s dist/phone/SoundAlert-v0.2.0-INSTALL-ON-PHONE.apk)
+          PHONE_SIZE=$(stat -c%s "dist/phone/SoundAlert-v${APP_VERSION}-INSTALL-ON-PHONE.apk")
           echo "Phone APK bytes: $PHONE_SIZE"
           if [ "$PHONE_SIZE" -gt 26214400 ]; then
             echo "::warning::Phone APK is above the preferred 25 MiB target."
@@ -91,7 +99,7 @@ jobs:
       - name: Upload PHONE installer
         uses: actions/upload-artifact@v4
         with:
-          name: INSTALL-ON-PHONE-SoundAlert-v0.2.0
+          name: INSTALL-ON-PHONE-SoundAlert-v${{ env.APP_VERSION }}
           path: dist/phone/*
           if-no-files-found: error
           retention-days: 30
@@ -99,7 +107,7 @@ jobs:
       - name: Upload WATCH installer
         uses: actions/upload-artifact@v4
         with:
-          name: INSTALL-ON-WATCH-SoundAlert-v0.2.0
+          name: INSTALL-ON-WATCH-SoundAlert-v${{ env.APP_VERSION }}
           path: dist/watch/*
           if-no-files-found: error
           retention-days: 30

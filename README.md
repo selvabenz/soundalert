@@ -1,4 +1,4 @@
-# SoundAlert v0.2.0 — Automatic Reliable Alert
+# SoundAlert v0.2.0-beta.1 — Automatic Reliable Alert
 
 SoundAlert is an Android accessibility app for deaf and hard-of-hearing people, including older users who need a very simple interface.
 
@@ -122,17 +122,17 @@ The workflow:
 
 Expected files:
 
-- `SoundAlert-v0.2.0-phone.apk`
-- `SoundAlert-v0.2.0-wear.apk`
-- `SoundAlert-v0.2.0.sha256`
+- `SoundAlert-v0.2.0-beta.1-INSTALL-ON-PHONE.apk`
+- `SoundAlert-v0.2.0-beta.1-INSTALL-ON-WEAR-OS-WATCH.apk`
+- separate phone and watch SHA-256 checksum files
 
 ### Automatic GitHub Release assets
 
 Pushing a tag such as:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag -a v0.2.0-beta.1 -m "SoundAlert v0.2.0-beta.1"
+git push origin v0.2.0-beta.1
 ```
 
 runs `.github/workflows/release-apk.yml`, creates/updates the GitHub Release and attaches the APK files directly under **Release → Assets**.

@@ -1,6 +1,6 @@
-# SoundAlert v0.2.0 — Automatic Reliable Alert
+# SoundAlert v0.2.0-beta.1 — Automatic Reliable Alert
 
-v0.2.0 redesigns SoundAlert around elderly, deaf and hard-of-hearing users: the interface is simpler while the detection engine becomes substantially smarter.
+v0.2.0-beta.1 redesigns SoundAlert around elderly, deaf and hard-of-hearing users: the interface is simpler while the detection engine becomes substantially smarter.
 
 ## Highlights
 
@@ -41,3 +41,5 @@ Long-press the power control for one second to toggle the optional flashlight al
 The current model uses general YAMNet horn classes plus SoundAlert filtering. It is intended to detect horns from Indian road vehicles but is not yet a custom India-trained model and does not identify vehicle type. Real-world recordings are needed for the next accuracy-tuning milestone.
 
 Road Alert remains a supplementary accessibility aid and should not be the user's only traffic warning mechanism.
+
+This is a public beta signed with the repository's beta-only key and application ID. It is not a Play Store production release.
