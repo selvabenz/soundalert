@@ -38,7 +38,7 @@ jobs:
           gradle-version: '9.6.0'
 
       - name: Download verified YAMNet model
-        run: ./scripts/fetch-yamnet.sh
+        run: bash ./scripts/fetch-yamnet.sh
 
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
