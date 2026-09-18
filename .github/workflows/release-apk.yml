@@ -29,7 +29,8 @@ jobs:
           packages: ''
 
       - name: Install Android API 37 and build tools
-        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "platform-tools"
+        run: |
+          sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "platform-tools"
 
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v4
@@ -39,23 +40,29 @@ jobs:
       - name: Download verified YAMNet model
         run: bash ./scripts/fetch-yamnet.sh
 
-- name: Remove legacy v0.1 sources
-  run: |
-    rm -f app/src/main/java/com/bridgeconn/soundalert/AppBus.kt
-    rm -f app/src/main/java/com/bridgeconn/soundalert/audio/HeuristicSoundClassifier.kt
-    rm -f app/src/main/java/com/bridgeconn/soundalert/ui/Theme.kt
-    rm -f app/src/test/java/com/bridgeconn/soundalert/audio/HeuristicSoundClassifierTest.kt
-
-      - name: Test and build
+      - name: Remove legacy v0.1 sources
         run: |
-          gradle --no-daemon :app:testDebugUnitTest --stacktrace
-          gradle --no-daemon :app:assembleDebug :wear:assembleDebug --stacktrace
+          rm -f app/src/main/java/com/bridgeconn/soundalert/AppBus.kt
+          rm -f app/src/main/java/com/bridgeconn/soundalert/audio/HeuristicSoundClassifier.kt
+          rm -f app/src/main/java/com/bridgeconn/soundalert/ui/Theme.kt
+          rm -f app/src/test/java/com/bridgeconn/soundalert/audio/HeuristicSoundClassifierTest.kt
+
+      - name: Run unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+
+      - name: Build phone and watch APKs
+        run: gradle --no-daemon :app:assembleDebug :wear:assembleDebug --stacktrace
 
       - name: Prepare release assets
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/SoundAlert-${GITHUB_REF_NAME}-phone.apk
-          cp wear/build/outputs/apk/debug/wear-debug.apk dist/SoundAlert-${GITHUB_REF_NAME}-wear.apk
+
+          cp app/build/outputs/apk/debug/app-debug.apk \
+            dist/SoundAlert-${GITHUB_REF_NAME}-phone.apk
+
+          cp wear/build/outputs/apk/debug/wear-debug.apk \
+            dist/SoundAlert-${GITHUB_REF_NAME}-wear.apk
+
           cd dist
           sha256sum *.apk > SoundAlert-${GITHUB_REF_NAME}.sha256
 
@@ -64,5 +71,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --title "SoundAlert $GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" \
+              --title "SoundAlert $GITHUB_REF_NAME" \
+              --generate-notes
+
           gh release upload "$GITHUB_REF_NAME" dist/* --clobber
