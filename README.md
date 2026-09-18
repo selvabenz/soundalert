@@ -2,7 +2,7 @@
 
 SoundAlert is an Android accessibility prototype intended to help a deaf or hard-of-hearing user notice important environmental sounds through **distinctive vibration patterns** and **large visual alerts**.
 
-Version: **0.1.0**
+Version: **0.1.1**
 
 ## Two modes
 
@@ -61,31 +61,15 @@ This project is configured for the Android toolchain current in September 2026:
 - Gradle 9.6.0
 - Compose BOM 2026.09.00
 
-## Important Gradle wrapper note
+## Gradle build note
 
-The source archive contains `gradle-wrapper.properties`, `gradlew`, and `gradlew.bat`, but **not the binary `gradle-wrapper.jar`** because this chat runtime could not retrieve that binary dependency.
+The GitHub Actions build does not depend on the Gradle wrapper JAR; it provisions Gradle 9.6.0 directly on the runner. This keeps the repository buildable through GitHub even if the wrapper JAR is not present.
 
-Before command-line building, generate the standard wrapper once from a machine that has Gradle installed:
+For local command-line builds, either install Gradle 9.6.0 or regenerate the wrapper once with:
 
 ```bash
 gradle wrapper --gradle-version 9.6.0
 ```
-
-This creates `gradle/wrapper/gradle-wrapper.jar`. After that, use:
-
-Windows:
-
-```bat
-gradlew.bat assembleDebug
-```
-
-macOS/Linux:
-
-```bash
-./gradlew assembleDebug
-```
-
-You can also open the folder directly in Android Studio, configure Gradle 9.6.0 if prompted, and use **Build > Build APK(s)**.
 
 ## Install and test
 
@@ -143,7 +127,7 @@ This project includes `.github/workflows/build-apk.yml`.
 2. Open the repository's **Actions** tab.
 3. Select **Build SoundAlert APK**.
 4. Choose **Run workflow** (or simply push to `main` / `master`).
-5. When the job succeeds, download the artifact named **SoundAlert-v0.1.0-APK**.
-6. Unzip the artifact to get `SoundAlert-v0.1.0-debug.apk`.
+5. When the job succeeds, download the artifact named **SoundAlert-v0.1.1-APK**.
+6. Unzip the artifact to get `SoundAlert-v0.1.1-debug.apk`.
 
 The workflow installs the required Android API/build tools on the GitHub runner, runs unit tests, builds the debug APK, and uploads it as a downloadable artifact. Android Studio is not required on your computer.

@@ -38,14 +38,16 @@ class SoundDetectionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action ?: ACTION_START) {
+        val command = intent ?: return START_NOT_STICKY
+
+        when (command.action ?: ACTION_START) {
             ACTION_START -> {
-                readSettings(intent)
+                readSettings(command)
                 startAsForeground()
                 startListening()
             }
             ACTION_UPDATE -> {
-                readSettings(intent)
+                readSettings(command)
                 AppBus.publishState(
                     AppBus.serviceState.value.copy(
                         running = running.get(),

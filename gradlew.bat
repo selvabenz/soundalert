@@ -1,10 +1,16 @@
 @echo off
 set APP_HOME=%~dp0
 set JAR=%APP_HOME%gradle\wrapper\gradle-wrapper.jar
-if not exist "%JAR%" (
-  echo gradle-wrapper.jar is not included in this chat-generated archive.
-  echo Run: gradle wrapper --gradle-version 9.6.0
-  echo or open the project in Android Studio and regenerate the Gradle wrapper.
-  exit /b 1
+if exist "%JAR%" (
+  java -classpath "%JAR%" org.gradle.wrapper.GradleWrapperMain %*
+  exit /b %ERRORLEVEL%
 )
-java -classpath "%JAR%" org.gradle.wrapper.GradleWrapperMain %*
+where gradle >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+  echo gradle-wrapper.jar is not present; using system Gradle instead.
+  gradle %*
+  exit /b %ERRORLEVEL%
+)
+echo Gradle wrapper JAR is not present and system Gradle was not found.
+echo Use the included GitHub Actions workflow to build the APK without Android Studio.
+exit /b 1
