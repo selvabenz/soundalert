@@ -1,4 +1,4 @@
-name: Build SoundAlert APK
+name: Build SoundAlert v0.2 APKs
 
 on:
   workflow_dispatch:
@@ -11,14 +11,14 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -30,7 +30,6 @@ jobs:
 
       - name: Install Android API 37 and build tools
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "platform-tools"
 
       - name: Set up Gradle 9.6.0
@@ -38,27 +37,36 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
-      - name: Verify toolchain
-        run: |
-          java -version
-          gradle --version
-          sdkmanager --list_installed | grep -E "platforms;android-37.0|build-tools;37.0.0|platform-tools" || true
+      - name: Download verified YAMNet model
+        run: ./scripts/fetch-yamnet.sh
 
       - name: Run unit tests
-        run: gradle --no-daemon --stacktrace :app:testDebugUnitTest
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
 
-      - name: Build debug APK
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Build phone and watch APKs
+        run: gradle --no-daemon :app:assembleDebug :wear:assembleDebug --stacktrace
 
-      - name: Rename APK
+      - name: Prepare artifacts
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk \
-             SoundAlert-v0.1.1-debug.apk
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/SoundAlert-v0.2.0-phone.apk
+          cp wear/build/outputs/apk/debug/wear-debug.apk dist/SoundAlert-v0.2.0-wear.apk
+          cd dist
+          sha256sum *.apk > SoundAlert-v0.2.0.sha256
+          PHONE_SIZE=$(stat -c%s SoundAlert-v0.2.0-phone.apk)
+          echo "Phone APK bytes: $PHONE_SIZE"
+          if [ "$PHONE_SIZE" -gt 26214400 ]; then
+            echo "::warning::Phone APK is above the preferred 25 MiB ceiling; optimize before public release."
+          fi
+          if [ "$PHONE_SIZE" -gt 41943040 ]; then
+            echo "Phone APK exceeds the absolute v0.2.0 ceiling of 40 MiB."
+            exit 1
+          fi
 
-      - name: Upload APK
+      - name: Upload installable APKs
         uses: actions/upload-artifact@v4
         with:
-          name: SoundAlert-v0.1.1-APK
-          path: SoundAlert-v0.1.1-debug.apk
+          name: SoundAlert-v0.2.0-APKs
+          path: dist/*
           if-no-files-found: error
           retention-days: 30

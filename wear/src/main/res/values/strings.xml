@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">SoundAlert</string>
+    <string name="alert_channel">SoundAlert</string>
+</resources>

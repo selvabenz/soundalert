@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "SoundAlert"
-include(":app")
+include(":app", ":wear")

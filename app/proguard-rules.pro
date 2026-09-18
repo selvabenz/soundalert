@@ -1,1 +1,3 @@
-# SoundAlert currently has no custom ProGuard/R8 rules.
+# SoundAlert v0.2.0
+-keep class com.google.mediapipe.** { *; }
+-dontwarn com.google.mediapipe.**

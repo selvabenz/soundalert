@@ -1,31 +1,23 @@
 package com.bridgeconn.soundalert
 
-enum class AlertMode {
-    ROAD,
-    HOME;
-
-    companion object {
-        fun from(value: String?): AlertMode =
-            entries.firstOrNull { it.name == value } ?: ROAD
-    }
-}
-
-enum class SoundLabel {
+enum class AlertKind {
+    NONE,
     HORN,
-    DOORBELL_OR_KNOCK
+    DOOR,
+    SIREN
 }
 
-data class DetectedAlert(
-    val id: Long = System.nanoTime(),
-    val label: SoundLabel,
-    val confidence: Float,
-    val timestampMillis: Long = System.currentTimeMillis(),
-    val detail: String = ""
-)
+enum class ContextProfile {
+    ROAD,
+    HOME,
+    UNCERTAIN
+}
 
-data class ServiceState(
+data class ServiceSnapshot(
     val running: Boolean = false,
-    val mode: AlertMode = AlertMode.ROAD,
-    val status: String = "Stopped",
-    val lastFrameConfidence: Float = 0f
+    val alert: AlertKind = AlertKind.NONE,
+    val profile: ContextProfile = ContextProfile.UNCERTAIN,
+    val sensitivity: Float = 0.70f,
+    val flashEnabled: Boolean = false,
+    val status: String = "OFF"
 )

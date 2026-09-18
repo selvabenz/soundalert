@@ -3,7 +3,10 @@
 /local.properties
 /.idea/
 /build/
+**/build/
 /captures/
 .externalNativeBuild/
 .cxx/
-app/build/
+app/src/main/assets/yamnet.tflite
+*.jks
+*.keystore

@@ -8,14 +8,10 @@ android {
 
     defaultConfig {
         applicationId = "com.bridgeconn.soundalert"
-        minSdk = 26
+        minSdk = 30
         targetSdk = 37
         versionCode = 20
         versionName = "0.2.0"
-
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-        }
     }
 
     buildTypes {
@@ -37,22 +33,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
-    androidResources {
-        noCompress += "tflite"
-    }
-
-    packaging {
-        resources.excludes += setOf(
-            "META-INF/DEPENDENCIES",
-            "META-INF/LICENSE*",
-            "META-INF/NOTICE*"
-        )
-    }
 }
 
 dependencies {
-    implementation("com.google.mediapipe:tasks-audio:1.0.0")
     implementation("com.google.android.gms:play-services-wearable:20.0.1")
-    testImplementation("junit:junit:4.13.2")
 }

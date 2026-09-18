@@ -1,13 +1,13 @@
 #!/bin/sh
-APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
-if [ -f "$JAR" ]; then
-  exec java -classpath "$JAR" org.gradle.wrapper.GradleWrapperMain "$@"
-fi
+# SoundAlert uses Gradle 9.6.0. GitHub Actions provisions Gradle directly.
 if command -v gradle >/dev/null 2>&1; then
-  echo "gradle-wrapper.jar is not present; using system Gradle instead." >&2
   exec gradle "$@"
 fi
-echo "Gradle wrapper JAR is not present and system Gradle was not found." >&2
-echo "Use the included GitHub Actions workflow to build the APK without Android Studio." >&2
-exit 1
+APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+if [ ! -f "$JAR" ]; then
+  echo "Gradle is not installed and gradle-wrapper.jar is not present."
+  echo "Use the included GitHub Actions workflow or run: gradle wrapper --gradle-version 9.6.0"
+  exit 1
+fi
+exec java -classpath "$JAR" org.gradle.wrapper.GradleWrapperMain "$@"

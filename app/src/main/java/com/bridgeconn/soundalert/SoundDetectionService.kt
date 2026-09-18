@@ -1,6 +1,7 @@
 package com.bridgeconn.soundalert
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -9,247 +10,281 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
+import android.os.Build
 import android.os.IBinder
-import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
-import androidx.core.content.ContextCompat
-import com.bridgeconn.soundalert.audio.HeuristicSoundClassifier
+import android.os.PowerManager
+import android.os.SystemClock
+import com.bridgeconn.soundalert.audio.DetectionPolicy
+import com.bridgeconn.soundalert.audio.LabelScore
+import com.bridgeconn.soundalert.audio.MultiFrameGate
+import com.bridgeconn.soundalert.audio.YamnetEngine
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.max
 
-class SoundDetectionService : Service() {
-
+class SoundDetectionService : Service(), YamnetEngine.Listener {
     private val running = AtomicBoolean(false)
-    private var workerThread: Thread? = null
-    private var audioRecord: AudioRecord? = null
-    private var classifier = HeuristicSoundClassifier(SAMPLE_RATE)
+    private var engine: YamnetEngine? = null
+    private lateinit var policy: DetectionPolicy
+    private lateinit var gate: MultiFrameGate
+    private lateinit var contextDetector: ContextDetector
+    private lateinit var calibration: CalibrationManager
+    private lateinit var flashController: FlashController
+    private lateinit var wearBridge: WearBridge
+    private var wakeLock: PowerManager.WakeLock? = null
 
-    @Volatile private var mode: AlertMode = AlertMode.ROAD
-    @Volatile private var sensitivity: Float = 0.70f
-    @Volatile private var cooldownMillis: Long = 2500L
-    private var lastAlertMillis: Long = 0L
+    @Volatile private var sensitivity = 0.70f
+    @Volatile private var flashEnabled = false
+    private var armed = true
+    private var rearmAt = 0L
+    private var quietFrames = 0
+    private var lastProfile = ContextProfile.UNCERTAIN
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannels()
+        policy = DetectionPolicy()
+        gate = MultiFrameGate()
+        contextDetector = ContextDetector(this)
+        calibration = CalibrationManager(this)
+        flashController = FlashController(this)
+        wearBridge = WearBridge(this)
+        createChannels()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val command = intent ?: return START_NOT_STICKY
-
-        when (command.action ?: ACTION_START) {
+        when (intent?.action ?: ACTION_START) {
             ACTION_START -> {
-                readSettings(command)
-                startAsForeground()
-                startListening()
+                readSettings(intent)
+                if (!hasAudioPermission()) {
+                    publishStopped("MIC")
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                startForegroundListening()
+                startListeningIfNeeded()
             }
             ACTION_UPDATE -> {
-                readSettings(command)
-                AppBus.publishState(
-                    AppBus.serviceState.value.copy(
-                        running = running.get(),
-                        mode = mode,
-                        status = if (running.get()) statusText() else "Stopped"
-                    )
-                )
-                updateForegroundNotification()
+                readSettings(intent)
+                AppState.update { it.copy(sensitivity = sensitivity, flashEnabled = flashEnabled) }
             }
             ACTION_STOP -> stopSelf()
         }
         return START_NOT_STICKY
     }
 
+    override fun onBind(intent: Intent?): IBinder? = null
+
     override fun onDestroy() {
         stopListening()
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        AppBus.publishState(ServiceState(running = false, mode = mode, status = "Stopped"))
+        flashController.close()
+        publishStopped("OFF")
+        try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Throwable) { }
         super.onDestroy()
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    private fun readSettings(intent: Intent?) {
+        val prefs = getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE)
+        sensitivity = (intent?.getFloatExtra(
+            EXTRA_SENSITIVITY,
+            prefs.getFloat(MainActivity.KEY_SENSITIVITY, 0.70f)
+        ) ?: prefs.getFloat(MainActivity.KEY_SENSITIVITY, 0.70f)).coerceIn(0.30f, 0.95f)
 
-    private fun readSettings(intent: Intent) {
-        mode = AlertMode.from(intent.getStringExtra(EXTRA_MODE))
-        sensitivity = intent.getFloatExtra(EXTRA_SENSITIVITY, sensitivity).coerceIn(0.30f, 0.95f)
-        cooldownMillis = intent.getLongExtra(EXTRA_COOLDOWN_MS, cooldownMillis).coerceIn(1000L, 10_000L)
+        flashEnabled = intent?.getBooleanExtra(
+            EXTRA_FLASH,
+            prefs.getBoolean(MainActivity.KEY_FLASH, false)
+        ) ?: prefs.getBoolean(MainActivity.KEY_FLASH, false)
     }
 
-    private fun startAsForeground() {
-        val notification = buildListeningNotification()
-        ServiceCompat.startForeground(
-            this,
-            LISTENING_NOTIFICATION_ID,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        )
-    }
+    private fun hasAudioPermission(): Boolean =
+        checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
-    private fun startListening() {
-        if (running.getAndSet(true)) return
+    private fun startListeningIfNeeded() {
+        if (!running.compareAndSet(false, true)) return
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            running.set(false)
-            AppBus.publishState(ServiceState(false, mode, "Microphone permission required"))
-            stopSelf()
-            return
-        }
+        acquireWakeLock()
+        contextDetector.start()
+        armed = true
+        quietFrames = 0
+        gate.reset()
 
-        val channelConfig = AudioFormat.CHANNEL_IN_MONO
-        val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-        val minBufferBytes = AudioRecord.getMinBufferSize(SAMPLE_RATE, channelConfig, audioFormat)
-        if (minBufferBytes <= 0) {
-            running.set(false)
-            AppBus.publishState(ServiceState(false, mode, "Audio input unavailable"))
-            stopSelf()
-            return
-        }
-
-        val bufferBytes = max(minBufferBytes, FRAME_SIZE * 2 * 3)
-        try {
-            audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                SAMPLE_RATE,
-                channelConfig,
-                audioFormat,
-                bufferBytes
-            )
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                throw IllegalStateException("AudioRecord could not initialize")
-            }
-            classifier.reset()
-            audioRecord?.startRecording()
-        } catch (t: Throwable) {
-            running.set(false)
-            audioRecord?.release()
-            audioRecord = null
-            AppBus.publishState(ServiceState(false, mode, "Microphone error: ${t.message ?: "unknown"}"))
-            stopSelf()
-            return
-        }
-
-        AppBus.publishState(ServiceState(true, mode, statusText()))
-        workerThread = Thread({ detectionLoop() }, "SoundAlertDetector").apply { start() }
-    }
-
-    private fun detectionLoop() {
-        val buffer = ShortArray(FRAME_SIZE)
-        while (running.get()) {
-            val record = audioRecord ?: break
-            val read = try {
-                record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
-            } catch (_: Throwable) {
-                break
-            }
-            if (read <= 0) continue
-
-            val result = classifier.analyze(buffer, read, mode, sensitivity)
-            if (result != null) {
-                val now = System.currentTimeMillis()
-                if (now - lastAlertMillis >= cooldownMillis) {
-                    lastAlertMillis = now
-                    triggerAlert(result)
-                }
-            }
-        }
-    }
-
-    private fun triggerAlert(result: HeuristicSoundClassifier.Classification) {
-        val alertMode = if (result.label == SoundLabel.HORN) AlertMode.ROAD else AlertMode.HOME
-        val event = DetectedAlert(
-            label = result.label,
-            confidence = result.confidence,
-            detail = result.detail
-        )
-        AppBus.publishAlert(event)
-        AppBus.publishState(
-            AppBus.serviceState.value.copy(
+        AppState.publish(
+            ServiceSnapshot(
                 running = true,
-                mode = mode,
-                status = if (alertMode == AlertMode.ROAD) "Horn detected" else "Door sound detected",
-                lastFrameConfidence = result.confidence
+                alert = AlertKind.NONE,
+                profile = ContextProfile.UNCERTAIN,
+                sensitivity = sensitivity,
+                flashEnabled = flashEnabled,
+                status = "ON"
             )
         )
-        Haptics.vibrate(this, alertMode)
-        showAlertNotification(event)
+
+        try {
+            engine = YamnetEngine(this, this).also { it.start() }
+        } catch (_: Throwable) {
+            running.set(false)
+            publishStopped("MODEL")
+            stopSelf()
+        }
+    }
+
+    @Synchronized
+    override fun onScores(scores: List<LabelScore>) {
+        if (!running.get() || scores.isEmpty()) return
+
+        val profile = contextDetector.updateFromAudio(scores)
+        if (profile != lastProfile) {
+            lastProfile = profile
+            AppState.update { it.copy(profile = profile) }
+        }
+
+        val background = policy.backgroundScore(scores)
+        calibration.observe(profile, background)
+
+        if (!armed) {
+            handleRearm(scores)
+            return
+        }
+
+        val candidate = policy.evaluate(
+            scores = scores,
+            sensitivity = sensitivity,
+            profile = profile,
+            calibrationAdjustment = calibration.thresholdAdjustment(profile)
+        )
+        val confirmed = gate.push(candidate)
+        if (confirmed != null) triggerAlert(confirmed.kind)
+    }
+
+    override fun onError(message: String) {
+        // One transient classifier error is not fatal. The foreground service remains alive.
+        AppState.update { it.copy(status = if (it.running) "ON" else it.status) }
+    }
+
+    private fun triggerAlert(kind: AlertKind) {
+        if (kind == AlertKind.NONE || !armed) return
+        armed = false
+        quietFrames = 0
+        gate.reset()
+        rearmAt = SystemClock.elapsedRealtime() + Haptics.duration(kind) + 350L
+
+        AppState.update {
+            it.copy(
+                running = true,
+                alert = kind,
+                profile = lastProfile,
+                sensitivity = sensitivity,
+                flashEnabled = flashEnabled,
+                status = kind.name
+            )
+        }
+
+        Haptics.vibrate(this, kind)
+        flashController.flash(kind, flashEnabled)
+        wearBridge.send(kind)
+        showAlertNotification(kind)
+    }
+
+    private fun handleRearm(scores: List<LabelScore>) {
+        if (SystemClock.elapsedRealtime() < rearmAt) return
+        if (policy.maxRelevantScore(scores) < 0.13f) quietFrames++ else quietFrames = 0
+        if (quietFrames >= 2) {
+            armed = true
+            quietFrames = 0
+            gate.reset()
+            AppState.update {
+                it.copy(
+                    running = true,
+                    alert = AlertKind.NONE,
+                    status = "ON",
+                    sensitivity = sensitivity,
+                    flashEnabled = flashEnabled
+                )
+            }
+        }
     }
 
     private fun stopListening() {
-        if (!running.getAndSet(false)) return
-        try { audioRecord?.stop() } catch (_: Throwable) { }
-        workerThread?.interrupt()
-        try { workerThread?.join(300) } catch (_: InterruptedException) { }
-        workerThread = null
-        audioRecord?.release()
-        audioRecord = null
-        classifier.reset()
+        running.set(false)
+        try { engine?.close() } catch (_: Throwable) { }
+        engine = null
+        try { contextDetector.stop() } catch (_: Throwable) { }
+        releaseWakeLock()
+        gate.reset()
+        armed = true
+        quietFrames = 0
     }
 
-    private fun statusText(): String = when (mode) {
-        AlertMode.ROAD -> "Listening for horns"
-        AlertMode.HOME -> "Listening for doorbell / knocks"
+    private fun acquireWakeLock() {
+        val pm = getSystemService(PowerManager::class.java)
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SoundAlert:Listening").apply {
+            setReferenceCounted(false)
+            try { acquire() } catch (_: Throwable) { }
+        }
     }
 
-    private fun createNotificationChannels() {
+    private fun releaseWakeLock() {
+        try { wakeLock?.takeIf { it.isHeld }?.release() } catch (_: Throwable) { }
+        wakeLock = null
+    }
+
+    private fun createChannels() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(
-                LISTENING_CHANNEL,
-                getString(R.string.listening_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Shows when SoundAlert is actively using the microphone"
+            NotificationChannel(LISTENING_CHANNEL, getString(R.string.listening_channel), NotificationManager.IMPORTANCE_LOW).apply {
                 setSound(null, null)
                 enableVibration(false)
+                description = "SoundAlert active"
             }
         )
         manager.createNotificationChannel(
-            NotificationChannel(
-                ALERT_CHANNEL,
-                getString(R.string.alert_channel_name),
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Visual notifications for detected horns and door sounds"
+            NotificationChannel(ALERT_CHANNEL, getString(R.string.alert_channel), NotificationManager.IMPORTANCE_HIGH).apply {
                 setSound(null, null)
-                enableVibration(false) // custom vibration is generated directly by Haptics
+                enableVibration(false)
+                description = "Important sound alerts"
             }
         )
     }
 
-    private fun buildListeningNotification() =
-        NotificationCompat.Builder(this, LISTENING_CHANNEL)
+    private fun startForegroundListening() {
+        val notification = buildListeningNotification()
+        if (Build.VERSION.SDK_INT >= 29) {
+            startForeground(
+                LISTENING_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            startForeground(LISTENING_NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun buildListeningNotification(): Notification =
+        Notification.Builder(this, LISTENING_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("SoundAlert is listening")
-            .setContentText(statusText())
+            .setContentTitle("SoundAlert")
+            .setContentText("●")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setContentIntent(mainActivityPendingIntent())
+            .setContentIntent(mainPendingIntent())
             .build()
 
-    private fun updateForegroundNotification() {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(LISTENING_NOTIFICATION_ID, buildListeningNotification())
-    }
-
-    private fun showAlertNotification(event: DetectedAlert) {
-        val horn = event.label == SoundLabel.HORN
-        val title = if (horn) "HORN DETECTED" else "SOMEONE MAY BE AT THE DOOR"
-        val body = if (horn) "Traffic horn-like sound detected nearby" else "Doorbell or knock-like sound detected"
-        val notification = NotificationCompat.Builder(this, ALERT_CHANNEL)
+    private fun showAlertNotification(kind: AlertKind) {
+        val title = when (kind) {
+            AlertKind.HORN -> "HORN"
+            AlertKind.DOOR -> "DOOR"
+            AlertKind.SIREN -> "SIREN"
+            AlertKind.NONE -> "SoundAlert"
+        }
+        val notification = Notification.Builder(this, ALERT_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText(body)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentText("SoundAlert")
             .setAutoCancel(true)
-            .setContentIntent(mainActivityPendingIntent())
+            .setContentIntent(mainPendingIntent())
             .build()
-        getSystemService(NotificationManager::class.java).notify(ALERT_NOTIFICATION_ID, notification)
+        try { getSystemService(NotificationManager::class.java).notify(ALERT_NOTIFICATION_ID, notification) } catch (_: Throwable) { }
     }
 
-    private fun mainActivityPendingIntent(): PendingIntent {
+    private fun mainPendingIntent(): PendingIntent {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -261,43 +296,53 @@ class SoundDetectionService : Service() {
         )
     }
 
-    companion object {
-        private const val SAMPLE_RATE = 16_000
-        private const val FRAME_SIZE = 2048
-        private const val LISTENING_CHANNEL = "soundalert_listening"
-        private const val ALERT_CHANNEL = "soundalert_alerts"
-        private const val LISTENING_NOTIFICATION_ID = 4101
-        private const val ALERT_NOTIFICATION_ID = 4102
+    private fun publishStopped(status: String) {
+        AppState.publish(
+            ServiceSnapshot(
+                running = false,
+                alert = AlertKind.NONE,
+                profile = ContextProfile.UNCERTAIN,
+                sensitivity = sensitivity,
+                flashEnabled = flashEnabled,
+                status = status
+            )
+        )
+    }
 
+    companion object {
         private const val ACTION_START = "com.bridgeconn.soundalert.START"
         private const val ACTION_UPDATE = "com.bridgeconn.soundalert.UPDATE"
         private const val ACTION_STOP = "com.bridgeconn.soundalert.STOP"
-        private const val EXTRA_MODE = "mode"
         private const val EXTRA_SENSITIVITY = "sensitivity"
-        private const val EXTRA_COOLDOWN_MS = "cooldown_ms"
+        private const val EXTRA_FLASH = "flash"
+        private const val LISTENING_CHANNEL = "soundalert_listening_v2"
+        private const val ALERT_CHANNEL = "soundalert_alerts_v2"
+        private const val LISTENING_NOTIFICATION_ID = 42020
+        private const val ALERT_NOTIFICATION_ID = 42021
 
-        fun start(context: Context, mode: AlertMode, sensitivity: Float, cooldownMillis: Long) {
+        fun start(context: Context, sensitivity: Float, flashEnabled: Boolean) {
             val intent = Intent(context, SoundDetectionService::class.java).apply {
                 action = ACTION_START
-                putExtra(EXTRA_MODE, mode.name)
                 putExtra(EXTRA_SENSITIVITY, sensitivity)
-                putExtra(EXTRA_COOLDOWN_MS, cooldownMillis)
+                putExtra(EXTRA_FLASH, flashEnabled)
             }
-            ContextCompat.startForegroundService(context, intent)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+            else context.startService(intent)
         }
 
-        fun update(context: Context, mode: AlertMode, sensitivity: Float, cooldownMillis: Long) {
+        fun update(context: Context, sensitivity: Float, flashEnabled: Boolean) {
+            if (!AppState.snapshot.running) return
             val intent = Intent(context, SoundDetectionService::class.java).apply {
                 action = ACTION_UPDATE
-                putExtra(EXTRA_MODE, mode.name)
                 putExtra(EXTRA_SENSITIVITY, sensitivity)
-                putExtra(EXTRA_COOLDOWN_MS, cooldownMillis)
+                putExtra(EXTRA_FLASH, flashEnabled)
             }
-            context.startService(intent)
+            try { context.startService(intent) } catch (_: Throwable) { }
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, SoundDetectionService::class.java))
+            val intent = Intent(context, SoundDetectionService::class.java).apply { action = ACTION_STOP }
+            try { context.startService(intent) } catch (_: Throwable) { context.stopService(intent) }
         }
     }
 }

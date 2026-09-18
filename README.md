@@ -1,133 +1,152 @@
-# SoundAlert for Android
+# SoundAlert v0.2.0 — Automatic Reliable Alert
 
-SoundAlert is an Android accessibility prototype intended to help a deaf or hard-of-hearing user notice important environmental sounds through **distinctive vibration patterns** and **large visual alerts**.
+SoundAlert is an Android accessibility app for deaf and hard-of-hearing people, including older users who need a very simple interface.
 
-Version: **0.1.1**
+## Normal user interface
 
-## Two modes
+v0.2.0 follows one rule:
 
-### Road Alert
-- Continuously analyzes microphone audio while the user explicitly enables listening.
-- Looks for sustained horn-like low-frequency tonal sounds.
-- Haptic pattern: **LONG → short → LONG**.
-- Displays `HORN DETECTED` and posts a visual alert notification.
+> **One screen. One switch. One sensitivity control. Everything else automatic.**
 
-### Home Alert
-- Looks for doorbell-like tonal sounds and strong knock-like transients.
-- Haptic pattern: **short → short → long pause → short → short**.
-- Displays `DOOR SOUND DETECTED` and posts a visual alert notification.
+There is no scrolling and no mode selector. The activity uses a full-screen immersive canvas. The screen contains:
+
+- a full-screen pulsing background;
+- one large ON/OFF control;
+- one sensitivity slider.
+
+During an alert the whole background flashes and a large visual symbol is drawn for horn, door or emergency siren.
+
+### Hidden one-time option
+
+Long-press the large ON/OFF control for one second to toggle optional flashlight alerts. The first time flash is enabled, Android asks for camera permission because torch control requires it. A small lightning mark appears when flash is enabled. This keeps the normal screen uncluttered.
+
+## Detection engine
+
+The GitHub build downloads the verified 4.13 MB YAMNet TFLite environmental-sound model and packages it inside the phone APK. MediaPipe Tasks Audio 1.0.0 performs all classification on-device.
+
+SoundAlert adds its own policy on top of the model:
+
+- horn group: vehicle/car horn/honking, toot, truck/air horn, bicycle bell;
+- emergency group: police, ambulance, fire-engine and generic siren classes;
+- home group: doorbell, ding-dong and knock;
+- 2-of-3 frame confirmation;
+- explicit negative/background suppression;
+- automatic ROAD/HOME/UNCERTAIN threshold bias;
+- automatic numerical background calibration per environment;
+- full detector reset after the vibration completes and two quiet frames are seen.
+
+## Negative/background filtering
+
+The explicit negative set includes:
+
+- speech, conversation, shouting and crowds;
+- music and radio;
+- engine/idling/revving;
+- wind and microphone wind noise;
+- construction tools;
+- traffic without horns;
+- television;
+- dogs;
+- household noise and appliances;
+- generic environmental/noise classes.
+
+These sounds do not directly trigger an alert and can suppress weak positive detections.
+
+## Automatic context
+
+Once the user presses ON, SoundAlert keeps one microphone foreground service running and automatically adjusts its detection profile using:
+
+- YAMNet environment/traffic/indoor labels;
+- low-rate accelerometer motion;
+- learned background levels.
+
+No GPS or location permission is used.
+
+Context only changes thresholds; it never completely disables horn or door detection.
+
+## Screen-locked/background reliability
+
+- Android `microphone` foreground service
+- partial CPU wake lock while SoundAlert is ON
+- persistent foreground notification
+- activity can be closed and screen can lock while listening continues
+
+Modern Android does not allow an app to silently start a microphone foreground service from the background. Therefore, after a reboot SoundAlert posts a small resume reminder if it was previously ON. Opening the app resumes listening while the activity is visible.
+
+## Haptic vocabulary
+
+- **Horn:** LONG — short — LONG
+- **Door:** short short — pause — short short
+- **Emergency siren:** triple-long — pause — triple-long
+
+The detector is reset after each vibration before another alert can fire.
+
+## Wear OS
+
+The project includes a separate `wear` companion module. When a compatible Wear OS watch has the companion APK installed, phone alerts are sent automatically through the Wearable Data Layer and reproduced with the same distinctive wrist vibration pattern.
+
+The phone app works normally without a watch.
 
 ## Privacy
 
-Audio analysis is performed locally in memory. This version:
-- does **not** request Internet permission;
-- does **not** save microphone recordings;
-- does **not** upload microphone audio;
-- releases the microphone when the user taps **STOP LISTENING**.
+- no microphone recordings are saved;
+- no audio is uploaded;
+- no GPS/location permission;
+- classification happens on-device;
+- calibration stores only numerical background baselines.
 
-## Safety limitation
+## Indian traffic scope
 
-**Road Alert is a supplementary awareness aid only.** It is not a certified traffic-safety device and must not be the user's only warning mechanism. Phone microphones can miss horns because of wind, traffic noise, distance, clothing, phone placement, microphone directionality, device processing, or other environmental conditions.
+v0.2.0 recognizes the generic horn classes that cover the acoustic events produced by cars, motorcycles/scooters, auto-rickshaws, buses and trucks, including truck/air horns. It does **not** claim to identify the vehicle type from the horn.
 
-The first detector is intentionally a small offline acoustic heuristic. It is useful for functional testing but should be replaced or augmented by a trained environmental-sound model after collecting representative test recordings from the actual places/devices where the app will be used.
+For substantially better India-specific accuracy, the next model-tuning step is to collect representative positive and negative recordings and train/test a compact SoundAlert-specific model. See `docs/REAL_WORLD_CALIBRATION.md`.
 
-## Technical architecture
+## Build without Android Studio
 
-- Kotlin
-- Jetpack Compose
-- Android foreground service with `foregroundServiceType="microphone"`
-- `AudioRecord` at 16 kHz mono PCM
-- Offline feature extraction / Goertzel tonal analysis
-- `VibrationEffect.createWaveform()` custom haptics
-- High-priority visual alert notification channel with system vibration disabled (to avoid mixing with the custom pattern)
-- No backend and no network permission
+The repository includes GitHub Actions.
 
-The detection logic is isolated in:
+### Normal build
 
-`app/src/main/java/com/bridgeconn/soundalert/audio/HeuristicSoundClassifier.kt`
+Push the project to GitHub, then open:
 
-That class can later be replaced with a MediaPipe/TFLite/YAMNet-style model without redesigning the UI, service, or vibration layer.
+`Actions → Build SoundAlert v0.2 APKs`
 
-## Requirements
+The workflow:
 
-This project is configured for the Android toolchain current in September 2026:
+1. installs JDK 17, Android API 37.0 and Gradle 9.6.0;
+2. downloads YAMNet and verifies its SHA-256;
+3. runs unit tests;
+4. builds phone and Wear OS APKs;
+5. reports phone APK size;
+6. uploads both APKs plus checksums as an artifact.
 
-- Android Studio Quail 4 (2026.1.4) or compatible newer release
-- JDK 17+
-- compileSdk 37
-- targetSdk 37
-- minSdk 26 (Android 8.0)
-- Android Gradle Plugin 9.4.0
-- Gradle 9.6.0
-- Compose BOM 2026.09.00
+Expected files:
 
-## Gradle build note
+- `SoundAlert-v0.2.0-phone.apk`
+- `SoundAlert-v0.2.0-wear.apk`
+- `SoundAlert-v0.2.0.sha256`
 
-The GitHub Actions build does not depend on the Gradle wrapper JAR; it provisions Gradle 9.6.0 directly on the runner. This keeps the repository buildable through GitHub even if the wrapper JAR is not present.
+### Automatic GitHub Release assets
 
-For local command-line builds, either install Gradle 9.6.0 or regenerate the wrapper once with:
+Pushing a tag such as:
 
 ```bash
-gradle wrapper --gradle-version 9.6.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-## Install and test
+runs `.github/workflows/release-apk.yml`, creates/updates the GitHub Release and attaches the APK files directly under **Release → Assets**.
 
-1. Open the project in Android Studio.
-2. Install Android SDK Platform 37 if Android Studio asks for it.
-3. Connect an Android phone with USB debugging enabled, or use an emulator for UI testing.
-4. Run the app.
-5. Tap **START LISTENING** and grant microphone permission.
-6. Choose **ROAD** or **HOME**.
-7. Use **TEST HORN VIBRATION** / **TEST DOORBELL VIBRATION** first to learn the patterns.
-8. Test with real sounds at safe distances and adjust sensitivity.
+## Important signing note
 
-The debug APK is normally generated at:
+The current CI package builds debug-signed prototype APKs. The phone and watch APKs produced in the **same workflow run** share the same package/signing identity and can communicate through Wear OS Data Layer.
 
-`app/build/outputs/apk/debug/app-debug.apk`
+Before distributing SoundAlert as a long-lived public production app, configure a persistent private release signing key. Because earlier v0.1 debug builds were created on ephemeral GitHub runners, users may need to uninstall an older prototype before installing this v0.2 prototype if Android reports a signature mismatch.
 
-## Detector calibration
+## Size strategy
 
-The current classifier uses a sensitivity setting from 30–95%. Higher sensitivity lowers the detection threshold. A 1–6 second cooldown prevents the same continuous sound from producing rapid repeated alerts.
+v0.2.0 removes Jetpack Compose and uses one custom Android View specifically to keep the phone APK small. CI warns above 25 MiB and fails above 40 MiB. After the first GitHub build, use the reported APK size to decide whether MediaPipe/ABI trimming is needed before public release.
 
-For publishing or real-world deployment, calibration should include:
-- multiple vehicle horn types;
-- motorcycles, buses, trucks, auto-rickshaws and cars;
-- speech, music, braking, engines and construction noise as negative examples;
-- wind and phone-in-pocket tests;
-- several Android phone microphones;
-- the user's actual home doorbell and common knock patterns.
+## Safety
 
-## Tests included
-
-`HeuristicSoundClassifierTest.kt` includes baseline tests for:
-- silence → no alert;
-- 440 Hz sustained tone → horn-like alert after consecutive frames;
-- 1200 Hz sustained tone → doorbell-like alert after consecutive frames.
-
-The same classifier was compiled with the local Kotlin compiler in the creation environment and the smoke test passed before the ZIP was produced.
-
-## Recommended v0.2
-
-The next serious step is a trained classifier with classes such as:
-- vehicle horn;
-- emergency siren;
-- bicycle bell;
-- doorbell;
-- knocking;
-- speech / music / engine / other noise as explicit negatives.
-
-A smartwatch companion would also be valuable because wrist haptics are much harder to miss than a phone in a pocket or bag.
-
-## Build the APK without Android Studio
-
-This project includes `.github/workflows/build-apk.yml`.
-
-1. Create an empty GitHub repository and upload/push the contents of this folder.
-2. Open the repository's **Actions** tab.
-3. Select **Build SoundAlert APK**.
-4. Choose **Run workflow** (or simply push to `main` / `master`).
-5. When the job succeeds, download the artifact named **SoundAlert-v0.1.1-APK**.
-6. Unzip the artifact to get `SoundAlert-v0.1.1-debug.apk`.
-
-The workflow installs the required Android API/build tools on the GitHub runner, runs unit tests, builds the debug APK, and uploads it as a downloadable artifact. Android Studio is not required on your computer.
+Road alerts are supplementary awareness aids. Do not treat SoundAlert as the sole traffic-warning system. Phone microphones and classifiers can miss or misclassify sounds because of distance, wind, traffic, phone placement, clothing, hardware differences and other environmental factors.
