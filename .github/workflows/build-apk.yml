@@ -53,32 +53,53 @@ jobs:
       - name: Build phone and watch APKs
         run: gradle --no-daemon :app:assembleDebug :wear:assembleDebug --stacktrace
 
-      - name: Prepare artifacts
+      - name: Verify APK signatures and alignment
         run: |
-          mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/SoundAlert-v0.2.0-phone.apk
-          cp wear/build/outputs/apk/debug/wear-debug.apk dist/SoundAlert-v0.2.0-wear.apk
+          APKSIGNER="$ANDROID_HOME/build-tools/37.0.0/apksigner"
+          ZIPALIGN="$ANDROID_HOME/build-tools/37.0.0/zipalign"
+          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk
+          "$APKSIGNER" verify --verbose --print-certs wear/build/outputs/apk/debug/wear-debug.apk
+          "$ZIPALIGN" -c -P 16 -v 4 app/build/outputs/apk/debug/app-debug.apk
+          "$ZIPALIGN" -c -P 16 -v 4 wear/build/outputs/apk/debug/wear-debug.apk
 
-          cd dist
+      - name: Prepare phone APK
+        run: |
+          mkdir -p dist/phone
+          cp app/build/outputs/apk/debug/app-debug.apk             dist/phone/SoundAlert-v0.2.0-INSTALL-ON-PHONE.apk
+          cd dist/phone
+          sha256sum *.apk > SoundAlert-v0.2.0-phone.sha256
 
-          sha256sum *.apk > SoundAlert-v0.2.0.sha256
+      - name: Prepare watch APK
+        run: |
+          mkdir -p dist/watch
+          cp wear/build/outputs/apk/debug/wear-debug.apk             dist/watch/SoundAlert-v0.2.0-INSTALL-ON-WEAR-OS-WATCH.apk
+          cd dist/watch
+          sha256sum *.apk > SoundAlert-v0.2.0-watch.sha256
 
-          PHONE_SIZE=$(stat -c%s SoundAlert-v0.2.0-phone.apk)
+      - name: Report phone APK size
+        run: |
+          PHONE_SIZE=$(stat -c%s dist/phone/SoundAlert-v0.2.0-INSTALL-ON-PHONE.apk)
           echo "Phone APK bytes: $PHONE_SIZE"
-
           if [ "$PHONE_SIZE" -gt 26214400 ]; then
-            echo "::warning::Phone APK is above the preferred 25 MiB ceiling; optimize before public release."
+            echo "::warning::Phone APK is above the preferred 25 MiB target."
           fi
-
           if [ "$PHONE_SIZE" -gt 41943040 ]; then
-            echo "Phone APK exceeds the absolute v0.2.0 ceiling of 40 MiB."
+            echo "Phone APK exceeds the absolute 40 MiB ceiling."
             exit 1
           fi
 
-      - name: Upload installable APKs
+      - name: Upload PHONE installer
         uses: actions/upload-artifact@v4
         with:
-          name: SoundAlert-v0.2.0-APKs
-          path: dist/*
+          name: INSTALL-ON-PHONE-SoundAlert-v0.2.0
+          path: dist/phone/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload WATCH installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: INSTALL-ON-WATCH-SoundAlert-v0.2.0
+          path: dist/watch/*
           if-no-files-found: error
           retention-days: 30

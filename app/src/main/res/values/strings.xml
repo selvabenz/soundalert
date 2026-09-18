@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">SoundAlert</string>
-    <string name="listening_channel">SoundAlert</string>
+    <string name="app_name">SoundAlert v0.2 Beta</string>
+    <string name="listening_channel">SoundAlert v0.2 Beta</string>
     <string name="alert_channel">Sound alerts</string>
     <string name="resume_channel">SoundAlert reminder</string>
 </resources>

@@ -7,10 +7,10 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.bridgeconn.soundalert"
+        applicationId = "com.bridgeconn.soundalert.v2beta"
         minSdk = 26
         targetSdk = 37
-        versionCode = 20
+        versionCode = 200
         versionName = "0.2.0"
 
         ndk {
@@ -18,10 +18,19 @@ android {
         }
     }
 
+    signingConfigs {
+        create("beta") {
+            storeFile = rootProject.file("signing/soundalert-v2-beta.keystore")
+            storePassword = "soundalert-v2-beta"
+            keyAlias = "soundalert-v2-beta"
+            keyPassword = "soundalert-v2-beta"
+        }
+    }
+
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
+            signingConfig = signingConfigs.getByName("beta")
+            versionNameSuffix = "-beta"
         }
         release {
             isMinifyEnabled = true
